@@ -1,0 +1,65 @@
+--DRAFT SQL CODE FOR COMPUTING CANOPY COVER STATS IN POLYGONS
+--SEE 'STEP' COMMENTS BELOW FOR DESCRIPTIONS OF EACH MAIN STEP
+
+create table shannon_test.parcel_subset_cc_combined as
+
+--START STEP 3: join table of summed areas by parcel grid and canopy change class to parcel shapes and calculate new columns
+--for areas and pcts of different change classes
+
+select
+ 	ps.gid,
+ 	ps.geom_2263,
+ 	st_area(ps.geom_2263) as parcel_ft2,
+ 	sum(case when cc.class = 'Gain' then cc.sumarea else 0 end) gain_ft2,
+ 	sum(case when cc.class = 'No Change' then cc.sumarea else 0 end) nochange_ft2,
+ 	sum(case when cc.class = 'Loss' then cc.sumarea else 0 end) loss_ft2,
+ 	sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end) as canopy_2010_ft2,
+ 	sum(case when cc.class = 'No Change' or cc.class = 'Gain' then cc.sumarea else 0 end) as canopy_2017_ft2,
+ 	(sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end)/ st_area(ps.geom_2263))* 100 as canopy_2010_pct,
+ 	(sum(case when cc.class = 'No Change' or cc.class = 'Gain' then cc.sumarea else 0 end)/ st_area(ps.geom_2263))* 100 as canopy_2017_pct,
+ 	(sum(case when cc.class = 'No Change' or cc.class = 'Gain' then cc.sumarea else 0 end)) - (sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end)) as canopy_17min10_ft2,
+ 	((sum(case when cc.class = 'No Change' or cc.class = 'Gain' then cc.sumarea else 0 end)/ st_area(ps.geom_2263))* 100) - ((sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end)/ st_area(ps.geom_2263))* 100) as canopy_17min10_pct,
+ 	case when sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end)>0 then (((sum(case when cc.class = 'No Change' or cc.class = 'Gain' then cc.sumarea else 0 end)) - (sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end)))/(sum(case when cc.class = 'No Change' or cc.class = 'Loss' then cc.sumarea else 0 end))) else 0 end as canopy_17min10_div10
+
+--START STEP 2: create table of summed areas by parcel gid and canopy change class
+
+from
+ 	shannon_test.parcel_subset as ps
+ left join 
+
+--START STEP 1: create 'clip' of the canopy cover data for the polygons of interest, calculate area, and create points on surface
+
+ 	( select 
+  	ps.gid,
+  	clip.class,
+  	sum(clip.cliparea) as sumarea	
+  from 
+  	shannon_test.parcel_subset as ps
+  left join
+  	(select
+ 		st_area(st_intersection(cc.geom_2263, ps.geom_2263)) as cliparea,
+ 		st_pointonsurface(st_multi(st_intersection(cc.geom_2263, ps.geom_2263)))::geometry(Point, 2263) as newgeom,
+ 		cc.class	
+ 	from 
+ 		env_assets.canopychange_2010_2017 as cc,
+ 		shannon_test.parcel_subset as ps
+ 	where 
+ 		st_intersects(cc.geom_2263, ps.geom_2263)) as clip
+    
+-- END STEP 1
+
+  on 
+  	st_contains(ps.geom_2263, clip.newgeom)
+  group by 
+  	ps.gid,
+  	clip.class) as cc 
+    
+--END STEP 2
+
+ on
+ 	ps.gid = cc.gid
+ group by
+ 	ps.gid,
+ 	ps.geom_2263
+  
+--END STEP 3
